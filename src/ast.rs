@@ -1,15 +1,26 @@
 use std::collections::HashMap;
 
+type Scope = HashMap<Var, u32>;
+
 /// A variable used in a lambda expression.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 struct Var {
     name: String,
+    ident: Option<u32>,
 }
 
 impl Var {
     fn from(s: impl AsRef<str>) -> Self {
         Var {
             name: s.as_ref().to_string(),
+            ident: None,
+        }
+    }
+
+    fn with_label(&self, label: u32) -> Self {
+        Var {
+            name: self.name.clone(),
+            ident: Some(label),
         }
     }
 }
@@ -26,8 +37,6 @@ enum Expr {
 }
 
 impl Expr {
-    // TODO: can put use Self::* here?
-
     /// Helper method to construct a variable expression.
     fn variable(s: impl AsRef<str>) -> Self {
         Expr::Variable(Var::from(s))
@@ -45,60 +54,93 @@ impl Expr {
 
     /// Print an expression as a string in this language.
     fn code(&self) -> String {
+        use Expr::*;
         match self {
-            Expr::Variable(Var { name: v }) => v.to_string(),
-            Expr::Abstraction(Var { name: v }, e) => format!("(\\{}. {})", v, &*e.code()),
-            Expr::Application(e1, e2) => format!("({} {})", &*e1.code(), &*e2.code()),
+            Variable(Var { name: v, .. }) => v.to_string(),
+            Abstraction(Var { name: v, .. }, e) => format!("(\\{}. {})", v, &*e.code()),
+            Application(e1, e2) => format!("({} {})", &*e1.code(), &*e2.code()),
         }
     }
 
-    /// Substitute all occurrences of `var` with `e` in `self`.
-    fn sub(self, var: &Var, e: Expr) -> Expr {
-        todo!()
-        //match self {}
+    /// Naively substitute all occurrences of `var` with `e` in `self`.
+    fn sub(&self, var: &Var, e: Expr) -> Expr {
+        use Expr::*;
+        match self {
+            ev @ Variable(Var { name: v, .. }) => {
+                if *v == var.name {
+                    e.clone()
+                } else {
+                    ev.clone()
+                }
+            }
+            Abstraction(svar, f) => {
+                // TODO: handle case where svar == var?
+                Abstraction(svar.clone(), Box::new(f.sub(var, e.clone())))
+            }
+            Application(e1, e2) => Application(
+                Box::new(e1.sub(var, e.clone())),
+                Box::new(e2.sub(var, e.clone())),
+            ),
+        }
     }
 
     // fn alpha_rename(self, )
 
-    fn canonicalize_inner(&self, d: u32) -> (Expr, HashMap<u32, Var>) {
+    fn canonicalize_inner(&self, scopes: Vec<Scope>) -> Expr {
         use Expr::*;
-
-        let mut m: HashMap<u32, Var> = HashMap::new();
 
         // TODO: turn this into a reduce with HashMap::extend
         let e = match self {
             Abstraction(v, e) => {
-                m.insert(d, v.clone());
-                let new_name = d.to_string();
-                let (ec, m1) = e.canonicalize_inner(d);
-                m.extend(m1);
+                let (new_scopes, new_name) = {
+                    // Enter a deeper scope
+                    let d = scopes.len() as u32;
+                    let last = scopes.last().cloned().unwrap_or_default();
+
+                    let mut scope = last.clone();
+                    scope.insert(v.clone(), d);
+                    let mut s = scopes.clone();
+                    s.push(scope);
+                    (s, d.to_string())
+                };
+
+                let ec = e.canonicalize_inner(new_scopes);
                 Abstraction(Var::from(new_name), Box::new(ec))
             }
             Application(e1, e2) => {
-                let (e1c, m1) = e1.canonicalize_inner(d + 1);
-                let (e2c, m2) = e2.canonicalize_inner(d + 1);
-                m.extend(m1);
-                m.extend(m2);
+                let e1c = e1.canonicalize_inner(scopes.clone());
+                let e2c = e2.canonicalize_inner(scopes);
                 Application(Box::new(e1c), Box::new(e2c))
             }
-            variable => variable.clone(),
+            Variable(var) => {
+                let scope = scopes.last().cloned().unwrap_or_default();
+                let lookup: Var = match scope.get(&var) {
+                    Some(t) => Var::from(t.to_string()),
+                    // iter thru older scopes? no?
+                    None => var.clone(),
+                };
+
+                Variable(lookup)
+            }
         };
 
-        (e, m)
+        e
     }
 
     /// Canonicalize bound variables to avoid binding issues.
-    fn canonicalize(&self) -> (Expr, HashMap<u32, Var>) {
-        self.canonicalize_inner(0)
+    fn canonicalize(&self) -> Expr {
+        self.canonicalize_inner(vec![HashMap::new()])
     }
 
     /// Evaluate an expression by performing beta-reduction and alpha-renaming
     /// when necessary.
     // TODO: make this take a &self, not a self. Same with `sub`.
-    fn eval(self) -> Expr {
+    fn eval(&self) -> Expr {
         use Expr::*;
 
-        match self {
+        let e = self.canonicalize();
+
+        match e {
             // Can only reduce an application (M N) if M is an abstraction.
             Application(e1, e2) => match *e1 {
                 Abstraction(var, e) => e.sub(&var, *e2),
@@ -113,6 +155,11 @@ impl Expr {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Helper for testing.
+    fn eval(e: &Expr) {
+        println!("{} --> {}", e.code(), e.eval().code());
+    }
 
     #[test]
     fn test_expr1() {
@@ -132,9 +179,11 @@ mod tests {
 
         // \x. \y. x
         let true_fn = Expr::abstraction("x", part);
+        eval(&true_fn);
 
         // (\x. (\y. x)) a
         let apply_true = Expr::application(true_fn, Expr::variable("a"));
+        eval(&apply_true);
 
         dbg!(&apply_true);
         println!("{}", apply_true.code());
@@ -146,8 +195,7 @@ mod tests {
         let id_fn = Expr::abstraction("x", Expr::variable("x"));
         let apply_y = Expr::application(id_fn.clone(), Expr::variable("y"));
 
-        let (c, m) = apply_y.canonicalize();
-        println!("{:#?}", m);
+        let c = apply_y.canonicalize();
         println!("{}", c.code());
 
         // (\x. (\x. x) x) x
@@ -159,8 +207,7 @@ mod tests {
         );
         println!("{}", f.code());
 
-        let (c, m) = f.canonicalize();
-        println!("{:#?}", m);
+        let c = f.canonicalize();
         println!("{}", c.code());
     }
 
@@ -169,6 +216,20 @@ mod tests {
         // (\x.x) y
         let id_fn = Expr::abstraction("x", Expr::variable("x"));
         let apply_y = Expr::application(id_fn, Expr::variable("y"));
-        apply_y.eval();
+        eval(&apply_y);
+    }
+
+    #[test]
+    fn test_eval2() {
+        // \x. x (\x. x) (\x. x x)
+        let inner_abstraction1 = Expr::abstraction("x", Expr::variable("x"));
+        let inner_abstraction2 = Expr::abstraction(
+            "x",
+            Expr::application(Expr::variable("x"), Expr::variable("x")),
+        );
+        let application1 = Expr::application(inner_abstraction1, inner_abstraction2);
+        let body = Expr::application(Expr::variable("x"), application1);
+        let outer_abstraction = Expr::abstraction("x", body);
+        eval(&outer_abstraction);
     }
 }
