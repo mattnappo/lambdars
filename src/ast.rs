@@ -17,10 +17,17 @@ impl Var {
         }
     }
 
-    fn with_label(&self, label: u32) -> Self {
+    fn with_ident(&self, label: u32) -> Self {
         Var {
             name: self.name.clone(),
             ident: Some(label),
+        }
+    }
+
+    fn code(&self) -> String {
+        match self.ident {
+            Some(i) => format!("{}{i}", self.name),
+            None => format!("{}", self.name),
         }
     }
 }
@@ -56,8 +63,8 @@ impl Expr {
     fn code(&self) -> String {
         use Expr::*;
         match self {
-            Variable(Var { name: v, .. }) => v.to_string(),
-            Abstraction(Var { name: v, .. }, e) => format!("(\\{}. {})", v, &*e.code()),
+            Variable(v) => v.code(),
+            Abstraction(v, e) => format!("(\\{}. {})", v.code(), &*e.code()),
             Application(e1, e2) => format!("({} {})", &*e1.code(), &*e2.code()),
         }
     }
@@ -84,63 +91,45 @@ impl Expr {
         }
     }
 
-    // fn alpha_rename(self, )
-
-    fn canonicalize_inner(&self, scopes: Vec<Scope>) -> Expr {
+    fn canonicalize_inner(&self, scope: &Scope, d: u32) -> Expr {
         use Expr::*;
 
-        // TODO: turn this into a reduce with HashMap::extend
-        let e = match self {
+        match self {
             Abstraction(v, e) => {
-                let (new_scopes, new_name) = {
-                    // Enter a deeper scope
-                    let d = scopes.len() as u32;
-                    let last = scopes.last().cloned().unwrap_or_default();
+                // Enter a deeper scope
+                let mut new_scope = scope.clone();
+                new_scope.insert(v.clone(), d + 1);
 
-                    let mut scope = last.clone();
-                    scope.insert(v.clone(), d);
-                    let mut s = scopes.clone();
-                    s.push(scope);
-                    (s, d.to_string())
-                };
-
-                let ec = e.canonicalize_inner(new_scopes);
-                Abstraction(Var::from(new_name), Box::new(ec))
+                let ec = e.canonicalize_inner(&new_scope, d + 1);
+                Abstraction(v.with_ident(d + 1), Box::new(ec))
             }
             Application(e1, e2) => {
-                let e1c = e1.canonicalize_inner(scopes.clone());
-                let e2c = e2.canonicalize_inner(scopes);
+                let e1c = e1.canonicalize_inner(scope, d);
+                let e2c = e2.canonicalize_inner(scope, d);
                 Application(Box::new(e1c), Box::new(e2c))
             }
             Variable(var) => {
-                let scope = scopes.last().cloned().unwrap_or_default();
-                let lookup: Var = match scope.get(&var) {
-                    Some(t) => Var::from(t.to_string()),
-                    // iter thru older scopes? no?
-                    None => var.clone(),
-                };
+                let lookup = scope
+                    .get(&var)
+                    .map(|t| var.with_ident(*t))
+                    .unwrap_or_else(|| var.clone());
 
                 Variable(lookup)
             }
-        };
-
-        e
+        }
     }
 
     /// Canonicalize bound variables to avoid binding issues.
     fn canonicalize(&self) -> Expr {
-        self.canonicalize_inner(vec![HashMap::new()])
+        self.canonicalize_inner(&HashMap::new(), 0)
     }
 
     /// Evaluate an expression by performing beta-reduction and alpha-renaming
     /// when necessary.
-    // TODO: make this take a &self, not a self. Same with `sub`.
     fn eval(&self) -> Expr {
         use Expr::*;
 
-        let e = self.canonicalize();
-
-        match e {
+        match self.canonicalize() {
             // Can only reduce an application (M N) if M is an abstraction.
             Application(e1, e2) => match *e1 {
                 Abstraction(var, e) => e.sub(&var, *e2),
