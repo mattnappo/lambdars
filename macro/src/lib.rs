@@ -1,9 +1,10 @@
 extern crate proc_macro;
-use proc_macro::{Delimiter, TokenStream, TokenTree};
+use proc_macro::{Delimiter, Ident, Span, TokenStream, TokenTree};
 
 use anyhow::{bail, Result};
+use quote::quote;
 
-use lambdars_core::ast::Expr;
+use lambdars_core::ast::{Expr, Var};
 
 const LAMBDA_TOK: &str = "L";
 
@@ -48,7 +49,17 @@ fn astize(tokens: &[TokenTree]) -> Result<Expr> {
 pub fn lambda(body: TokenStream) -> TokenStream {
     println!("body: {body:#?}");
     let expr = astize(&body.into_iter().collect::<Vec<_>>()).unwrap();
-    println!("{}", expr.code());
+    let reduced = expr.eval();
+    println!("uhhlihh");
 
-    TokenStream::new()
+    println!("{} --> {}", expr.code(), reduced.code());
+
+    let output = match reduced {
+        Expr::Variable(Var { name, .. }) => {
+            TokenStream::from(TokenTree::Ident(Ident::new(&name, Span::call_site())))
+        }
+        _ => TokenStream::new(),
+    };
+    println!("output: {output:#?}");
+    output
 }

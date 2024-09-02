@@ -5,7 +5,7 @@ type Scope = HashMap<Var, u32>;
 /// A variable used in a lambda expression.
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct Var {
-    name: String,
+    pub name: String,
     ident: Option<u32>,
 }
 
