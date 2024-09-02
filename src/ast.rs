@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use tracing::instrument;
 
 type Scope = HashMap<Var, u32>;
 
@@ -70,47 +69,24 @@ impl Expr {
         }
     }
 
-    /// Naively substitute all occurrences of `var` with `e` in `self`.
-    //#[instrument(skip(self))]
-    #[instrument]
-    pub fn sub(&self, var: &Var, e: Expr) -> Expr {
-        tracing::info!("");
+    /// Reduce a lambda expression.
+    pub fn eval(&self) -> Expr {
+        self.canonicalize().eval_inner()
+    }
+}
+
+impl Expr {
+    fn sub(&self, var: &Var, e: Expr) -> Expr {
         use Expr::*;
         match self {
             ev @ Variable(v) => {
-                // Only sub if there is a ident. Otherwise, its a free var.
-                // dbg!(&var);
-                // dbg!(&v);
-                if var.name == v.name {
-                    e.clone()
-                } else {
-                    ev.clone()
-                }
-                /*
                 match (var.ident, v.ident) {
-
-                    // TODO: the issue is here (perhaps?)
-                    (Some(i), Some(j)) if i == j && var.name == v.name => e.clone(),
-                    //(None, Some(i)) => {} //(Some(i), None) => {},
-                    //(None, None) => {},
+                    // (Some(i), Some(j)) if i == j && var.name == v.name => e.clone(),
+                    (Some(i), Some(j)) if i == j => e.clone(),
                     _ => ev.clone(),
                 }
-                /*
-                if *v == var.name {
-                    e.clone()
-                } else {
-                    ev.clone()
-                }
-                */
-                    */
             }
-            Abstraction(v, f) => {
-                // TODO: handle case where svar == var?
-                if v == var {
-                    panic!("uh oh. bad canonicalization?");
-                }
-                Abstraction(v.clone(), Box::new(f.sub(var, e.clone())))
-            }
+            Abstraction(v, f) => Abstraction(v.clone(), Box::new(f.sub(var, e.clone()))),
             Application(e1, e2) => Application(
                 Box::new(e1.sub(var, e.clone())),
                 Box::new(e2.sub(var, e.clone())),
@@ -118,9 +94,8 @@ impl Expr {
         }
     }
 
-    pub fn canonicalize_inner(&self, scope: &Scope, d: u32) -> Expr {
+    fn canonicalize_inner(&self, scope: &Scope, d: u32) -> Expr {
         use Expr::*;
-
         match self {
             Abstraction(v, e) => {
                 // Enter a deeper scope
@@ -140,80 +115,43 @@ impl Expr {
                     .get(&var)
                     .map(|t| var.with_ident(*t))
                     .unwrap_or_else(|| var.clone());
-
                 Variable(lookup)
             }
         }
     }
 
     /// Canonicalize bound variables to avoid binding issues.
-    //#[instrument(skip(self))]
-    pub fn canonicalize(&self) -> Expr {
-        //tracing::info!("");
+    fn canonicalize(&self) -> Expr {
         self.canonicalize_inner(&HashMap::new(), 0)
     }
 
     /// Evaluate an expression by performing beta-reduction and alpha-renaming
     /// when necessary.
-    #[instrument]
     fn eval_inner(&self) -> Expr {
-        tracing::info!("");
         use Expr::*;
-
         match self.clone() {
             Application(e1, e2) => {
                 let (e1, e2) = (Box::new(e1.eval_inner()), Box::new(e2.eval_inner()));
                 match *e1.clone() {
-                    Abstraction(var, e) => {
-                        let s = e.sub(&var, *e2.clone()).eval_inner();
-
-                        /*
-                        println!(
-                            "β: {} --> [{} \\ {}] --> {}",
-                            e.code(),
-                            var.code(),
-                            e2.code(),
-                            s.code()
-                        );
-                        */
-                        s
-                    }
-                    //e => Application(Box::new(e1.eval_inner()), Box::new(e2.eval_inner())),
-                    e => Application(e1, e2),
+                    Abstraction(var, e) => e.sub(&var, *e2.clone()).eval_inner(),
+                    _ => Application(e1, e2),
                 }
             }
             other => other,
         }
     }
-
-    fn eval(&self) -> Expr {
-        let c = self.canonicalize();
-        println!("canonicalized: {}", c.code());
-        c.eval_inner()
-    }
-}
-
-/// Helper for testing.
-pub fn eval(e: &Expr) -> Expr {
-    let reduced = e.eval();
-    println!("{} --> {}", e.code(), reduced.code());
-    println!("reduced: {:#?}", reduced);
-    reduced
 }
 
 #[cfg(test)]
 pub mod tests {
     use super::*;
 
-    fn tracing() {
-        use tracing_subscriber::{prelude::*, Layer};
-        let layer = tracing_subscriber::fmt::layer()
-            .pretty()
-            .with_writer(std::io::stdout)
-            //.and_then(tracing_subscriber::filter::EnvFilter::from_default_env())
-            .boxed();
-
-        tracing_subscriber::registry().with(layer).init();
+    /// Helper for testing.
+    pub fn eval(e: &Expr) -> Expr {
+        let reduced = e.eval();
+        println!("{} --> {}", e.code(), reduced.code());
+        println!("reduced: {:#?}", reduced);
+        reduced
     }
 
     #[test]
@@ -275,12 +213,7 @@ pub mod tests {
     }
 
     #[test]
-    //#[tracing_test::traced_test]
     fn test_eval2() {
-        //tracing();
-        tracing_subscriber::fmt::init();
-        //let _ = env_logger::builder().is_test(true).try_init();
-
         // \x. x (\x. x) (\x. x x)
         let inner_abstraction1 = Expr::abstraction("x", Expr::variable("x"));
         let inner_abstraction2 = Expr::abstraction(
@@ -290,17 +223,25 @@ pub mod tests {
         let application1 = Expr::application(inner_abstraction1, inner_abstraction2);
         let body = Expr::application(Expr::variable("x"), application1);
         let outer_abstraction = Expr::abstraction("x", body);
-        eval(&outer_abstraction);
 
         // [ \x. x (\x. x) (\x. x x) ] a
         // -> a (\x.x) (\x. x x)
         // -> a (\x. x x)
-        let apply = Expr::application(outer_abstraction, Expr::variable("a"));
-        println!("final");
-        let f = eval(&apply);
-
-        // try to reudce again manually from the outside
-        let second = eval(&f);
+        let apply = Expr::application(outer_abstraction.clone(), Expr::variable("a"));
+        eval(&apply);
+        {
+            let id = Expr::abstraction("x", Expr::variable("x"));
+            let copy = Expr::abstraction(
+                "y",
+                Expr::application(Expr::variable("y"), Expr::variable("y")),
+            );
+            let f = Expr::abstraction(
+                "x",
+                Expr::application(Expr::variable("x"), Expr::application(id, copy)),
+            );
+            let g = Expr::application(f, Expr::variable("a"));
+            eval(&g);
+        }
     }
 
     #[test]
@@ -322,38 +263,31 @@ pub mod tests {
     }
 
     #[test]
+    fn test_eval5() {
+        // (x \y. (\x.x))
+        let id1 = Expr::variable("x");
+        let id2 = Expr::abstraction("y", Expr::abstraction("x", Expr::variable("x")));
+        let id3 = Expr::application(id2, Expr::variable("a"));
+        let f = Expr::application(id1, id3);
+        eval(&f);
+    }
+
+    #[test]
     fn test_complex() {
         // ((\f.(\x.f (\y.(\z.y (z z)) (\w.x (w w))))) (\p.(\q.p (q q)))) (\a.\b.a)
-
-        // Define the innermost abstraction
         let inner_abstraction1 = Expr::abstraction("w", Expr::variable("w"));
-
-        // Define the middle-level abstraction
         let middle_abstraction = Expr::abstraction("z", inner_abstraction1.clone());
-
-        // Define the application of the middle-level abstraction
         let inner_application = Expr::application(
             Expr::variable("f"),
             Expr::application(Expr::variable("y"), Expr::variable("y")),
         );
-
-        // Define the inner abstraction
         let inner_abstraction = Expr::abstraction("x", inner_application);
-
-        // Define the application of the inner abstraction
         let application1 = Expr::application(inner_abstraction, middle_abstraction.clone());
-
-        // Define the body of the outer abstraction
         let body = Expr::application(application1, Expr::variable("f"));
-
-        // Define the outer abstraction
         let outer_abstraction = Expr::abstraction("f", body);
-
-        // Define the final application
         let final_application = Expr::application(outer_abstraction, middle_abstraction);
-        eval(&final_application);
 
-        // let output = Expr::application(final_application, Expr::variable("a"));
-        //eval(&output);
+        let output = Expr::application(final_application, Expr::variable("t"));
+        eval(&output);
     }
 }
