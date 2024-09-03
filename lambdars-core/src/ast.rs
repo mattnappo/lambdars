@@ -10,7 +10,7 @@ pub struct Var {
 }
 
 impl Var {
-    fn from(s: impl AsRef<str>) -> Self {
+    fn new(s: impl AsRef<str>) -> Self {
         Var {
             name: s.as_ref().to_string(),
             ident: None,
@@ -46,12 +46,12 @@ pub enum Expr {
 impl Expr {
     /// Helper method to construct a variable expression.
     pub fn variable(s: impl AsRef<str>) -> Self {
-        Expr::Variable(Var::from(s))
+        Expr::Variable(Var::new(s))
     }
 
     /// Helper method to construct an abstraction expression.
     pub fn abstraction(s: impl AsRef<str>, e: Expr) -> Self {
-        Expr::Abstraction(Var::from(s), Box::new(e))
+        Expr::Abstraction(Var::new(s), Box::new(e))
     }
 
     /// Helper method to construct an application expression.

@@ -13,4 +13,9 @@ name = "lambdars"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "lambdars_core",
 ]
+
+[[package]]
+name = "lambdars_core"
+version = "0.1.0"
