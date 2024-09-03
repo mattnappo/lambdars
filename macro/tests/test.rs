@@ -1,24 +1,26 @@
 use lambdars_macro::*;
 
 #[test]
-fn test1() {
-    let a = "asd";
-    let thing = lambda! {
-        //@input(a); // captures a from outer scope
-        (Lx.x) a
-    };
+fn test_swap() {
+    let a = "aaa";
+    let b = "bbb";
 
-    println!("thing = {a}");
+    let t = lambda! {
+        @input(a, b) // capture `a` and `b` from outer scope
+
+        (Lx.Ly. y x) a b   // swap
+    };
+    println!("{t:?}"); // prints ("bbb", "aaa")
 }
 
-/*
 #[test]
-fn test1() {
-    let func = lambda! {
-        @input(a);
-        (Lx.x x) (Ly. y x) a
-    };
+fn test_copy() {
+    let a = "aaa";
 
-    func(a);
+    let t = lambda! {
+        @input(a)
+
+        (Lx.x x) a
+    };
+    println!("{t:?}"); // prints ("aaa", "aaa")
 }
-*/
