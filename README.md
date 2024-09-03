@@ -11,15 +11,15 @@ Here is the simplest possible usage of `lambda!`.
 let a = 1;
 let out = lambda! {
     @input(a) // capture `a` from the outer scope
+
     (Lx.x) a  // apply `a` to the identity function
 };
 assert_eq!(out, a);
 ```
 
-A `lambda!` macro consists of two parts: an `@input` decorator and a Lambda Calculus expression. The `@input(...)` decorator takes in a list of identifiers from the outer scope. Whenever an identifier `a` in this list appears as a variable in the reduced form of the given Lambda Calculus expression, that variable will refer to whatever `a` binds to in the outer scope.
+A `lambda!` macro consists of two parts: an `@input` decorator and a Lambda Calculus expression. The `@input(...)` decorator takes in a list of identifiers from the outer scope. If `a` is denoted as an input with `@input(a)`, then whenever `a` appears in the Lambda Calculus expression, it refers to the variable `a` in the outer scope.
 
-In this case, `(Lx.x) a` reduces to `a`, which is bound to the literal `1`. Since `a` is marked as an `@input`, the enture `lambda!` block returns `a`. This will become more clear in the following examples.
-
+In this case, `(Lx.x) a` reduces to `a`, which is bound to the literal `1`. Since `a` is marked as an `@input`, the enture `lambda!` block returns `a`.
 
 ## Example 2: Swap and Copy
 
@@ -32,7 +32,7 @@ let b = 2;
 let t = lambda! {
     @input(a, b) // capture `a` and `b` from outer scope
 
-    (Lx.Ly. y x) a b   // swap
+    (Lx. Ly. y x) a b   // swap
 };
 assert_eq!(t, (2, 1));
 ```
@@ -51,6 +51,7 @@ We can also write a `lambda!` that "copies" a value. This is just the expression
 let a = 1;
 let t = lambda! {
     @input(a)
+
     (Lx. (x x)) x
 };
 assert_eq!(t, (1, 1));
@@ -66,6 +67,7 @@ let b = 2;
 let c = "ccc";
 let t = lambda! {
     @input(a, b, c)
+
     (Lx. Ly. y x) a b c
 };
 assert_eq!(t, ((2, 1), "ccc"));
@@ -91,7 +93,7 @@ let b = 2;
 let not_true = lambda! {
     @input(a, b)
     (Lt. (t (Lx.Ly.y) (Lx.Ly.x)))   // NOT gate
-        (Lx.Ly.x) a b               // call the NOT gate with TRUE
+        (Lx.Ly.x) a b               // apply TRUE to NOT
 };
 // NOT(TRUE) --> FALSE, and (FALSE a b) --> b
 assert_eq!(not_true, b);
@@ -99,12 +101,21 @@ assert_eq!(not_true, b);
 let not_false = lambda! {
     @input(a, b)
     (Lt. (t (Lx.Ly.y) (Lx.Ly.x)))   // NOT gate
-        (Lx.Ly.y) a b               // call the NOT gate with FALSE
+        (Lx.Ly.y) a b               // apply FALSE to NOT
 };
 // NOT(FALSE) --> TRUE, and (TRUE a b) --> a
 assert_eq!(not_false, a);
 ```
 
+## Notes
 
-## Warning
 ⚠️ This project is not complete ⚠️
+
+### Currying Shorthand Notation
+A common shorthand notation for functions with multiple inputs is to only write one lambda. For example, `Lx. Ly. E` is often written as `Lxy. E`. 
+
+Lambdars intentionally does not support this notation, and will instead interpret `Lxy. E` as a function that binds the variable `xy`. Thus, `Lxyz.xyz` is actually just the identity function `Lx.x`.
+
+### Motivation
+
+This project is inspired by [Crepe](https://github.com/ekzhang/crepe).
