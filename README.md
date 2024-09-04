@@ -116,6 +116,9 @@ A common shorthand notation for functions with multiple inputs is to only write 
 
 Lambdars intentionally does not support this notation, and will instead interpret `Lxy. E` as a function that binds the variable `xy`. Thus, `Lxyz.xyz` is actually just the identity function `Lx.x`.
 
+### Evaluation
+Currently, all Lambdars computation takes place at compile time. This includes the parsing of your `lambda!` expressions as well as all α-conversion and β-reduction steps. This means that `lambda!` has absolutely zero performance overhead at runtime.
+
 ### Motivation
 
 This project is inspired by [Crepe](https://github.com/ekzhang/crepe).
