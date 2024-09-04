@@ -52,7 +52,7 @@ let a = 1;
 let t = lambda! {
     @input(a)
 
-    (Lx. (x x)) x
+    (Lx. (x x)) a
 };
 assert_eq!(t, (1, 1));
 ```
